@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       const nights = calculateNights(dates.checkIn, dates.checkOut);
       if (avail.length > 0) {
         const grouped = new Map<string, { count: number; price: number }>();
-        avail.forEach(r => {
+        avail.forEach((r: any) => {
           const g = grouped.get(r.type) || { count: 0, price: r.pricePerNight };
           g.count++;
           grouped.set(r.type, g);

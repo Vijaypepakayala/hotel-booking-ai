@@ -20,7 +20,7 @@ export async function getAvailableRooms(checkIn: string, checkOut: string, type?
     },
     select: { roomId: true },
   });
-  const ids = bookedRoomIds.map(b => b.roomId);
+  const ids = bookedRoomIds.map((b: any) => b.roomId);
 
   return prisma.room.findMany({
     where: {
@@ -59,15 +59,15 @@ export async function getStats() {
     prisma.booking.findMany({ where: { status: { notIn: ["cancelled"] } } }),
     prisma.booking.findMany({ where: { status: { in: ["confirmed", "checked-in"] } } }),
   ]);
-  const bookedRoomIds = new Set(activeBookings.map(b => b.roomId));
+  const bookedRoomIds = new Set(activeBookings.map((b: any) => b.roomId));
   const bookedRooms = bookedRoomIds.size;
   return {
     totalRooms,
     bookedRooms,
     available: totalRooms - bookedRooms,
     occupancy: Math.round((bookedRooms / totalRooms) * 100),
-    revenue: bookings.reduce((s, b) => s + b.totalPrice, 0),
-    guests: activeBookings.reduce((s, b) => s + b.adults + b.children, 0),
+    revenue: bookings.reduce((s: number, b: any) => s + b.totalPrice, 0),
+    guests: activeBookings.reduce((s: number, b: any) => s + b.adults + b.children, 0),
     bookings: bookings.length,
   };
 }
