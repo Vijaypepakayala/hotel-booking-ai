@@ -24,6 +24,9 @@ export default function Home() {
   const [demoMode, setDemoMode] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [activeSpeaker, setActiveSpeaker] = useState<"assistant" | "user" | null>(null);
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [callRequested, setCallRequested] = useState(false);
+  const [callError, setCallError] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -220,8 +223,8 @@ export default function Home() {
                 </span>
               </button>
               <button
-                onClick={() => startCall(false)}
-                disabled={call.phase === "ringing" || call.phase === "connected"}
+                onClick={() => setCallRequested(true)}
+                disabled={call.phase === "ringing" || call.phase === "connected" || callRequested}
                 className="px-6 py-3.5 rounded-xl font-semibold text-sm glass border-[var(--gold-dim)]/20 hover:border-[var(--gold)]/30 transition-all disabled:opacity-50"
               >
                 <span className="flex items-center gap-2">
@@ -229,6 +232,49 @@ export default function Home() {
                 </span>
               </button>
             </div>
+
+            {/* Phone number input for real call */}
+            {callRequested && (
+              <div className="animate-fadeUp mb-8 p-5 rounded-2xl glass border border-[var(--gold-dim)]/20 max-w-md">
+                <p className="text-sm font-medium mb-3 text-[var(--gold)]">📞 Enter your phone number — Aria will call you!</p>
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  setCallError("");
+                  if (!phoneNumber.trim()) return;
+                  try {
+                    const res = await fetch("/api/call", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ phone: phoneNumber.trim() }),
+                    });
+                    const data = await res.json();
+                    if (data.error) { setCallError(data.error); return; }
+                    setCallRequested(false);
+                    setCall({ active: true, duration: 0, phase: "ringing" });
+                    setMessages([]);
+                    setDemoMode(false);
+                    addMsg("system", "📞 Calling " + phoneNumber + " — pick up to talk to Aria!");
+                    setTimeout(() => setCall(c => ({ ...c, phase: "connected" })), 3000);
+                  } catch (err: any) {
+                    setCallError("Failed to initiate call. Try again.");
+                  }
+                }} className="flex gap-2">
+                  <input
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={e => setPhoneNumber(e.target.value)}
+                    placeholder="+1 555 123 4567"
+                    className="flex-1 bg-[var(--card)] border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[var(--gold-dim)] transition placeholder:text-[var(--muted)]"
+                    autoFocus
+                  />
+                  <button type="submit" className="px-5 py-3 rounded-xl font-semibold text-sm bg-gradient-to-r from-[var(--green)] to-emerald-600 text-white hover:shadow-lg transition-all">
+                    Call Me
+                  </button>
+                </form>
+                {callError && <p className="text-xs text-[var(--red)] mt-2">{callError}</p>}
+                <p className="text-xs text-[var(--muted)] mt-2">Aria will call your phone. Standard call rates may apply.</p>
+              </div>
+            )}
 
             {/* Stats row */}
             <div className="flex gap-8 animate-fadeUp" style={{ animationDelay: '0.25s' }}>
