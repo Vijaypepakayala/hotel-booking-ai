@@ -1,0 +1,58 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["hotel"]
+}
+
+model Room {
+  id            String    @id @default(cuid())
+  type          String    // Standard, Deluxe, Suite, Penthouse
+  number        String    @unique
+  floor         Int
+  pricePerNight Int
+  amenities     String[]
+  bookings      Booking[]
+  createdAt     DateTime  @default(now())
+
+  @@map("hotel_rooms")
+  @@schema("hotel")
+}
+
+model Booking {
+  id               String   @id @default(cuid())
+  room             Room     @relation(fields: [roomId], references: [id])
+  roomId           String
+  guestName        String
+  guestPhone       String
+  guestEmail       String?
+  checkIn          DateTime
+  checkOut         DateTime
+  adults           Int      @default(2)
+  children         Int      @default(0)
+  totalPrice       Int
+  status           String   @default("confirmed") // confirmed, checked-in, checked-out, cancelled
+  confirmationCode String   @unique
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("hotel_bookings")
+  @@schema("hotel")
+}
+
+model CallLog {
+  id          String   @id @default(cuid())
+  callerPhone String?
+  duration    Int      @default(0) // seconds
+  transcript  String?
+  outcome     String   @default("completed") // completed, abandoned, transferred
+  bookingId   String?
+  createdAt   DateTime @default(now())
+
+  @@map("hotel_call_logs")
+  @@schema("hotel")
+}

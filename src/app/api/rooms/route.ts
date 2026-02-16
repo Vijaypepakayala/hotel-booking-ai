@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAllRooms } from "@/lib/data";
+
+export const dynamic = "force-dynamic";
+
 export async function GET() {
-  return NextResponse.json({ rooms: getAllRooms() });
+  const rooms = await getAllRooms();
+  return NextResponse.json({ rooms });
 }

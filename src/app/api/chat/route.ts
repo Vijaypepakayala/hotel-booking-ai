@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     const dates = parseDates(message);
     if (dates) {
       const type = parseType(lower);
-      const avail = getAvailableRooms(dates.checkIn, dates.checkOut, type || undefined);
+      const avail = await getAvailableRooms(dates.checkIn, dates.checkOut, type || undefined);
       const nights = calculateNights(dates.checkIn, dates.checkOut);
       if (avail.length > 0) {
         const grouped = new Map<string, { count: number; price: number }>();
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     const type = parseType(lower)!;
     const dates = findDates(all);
     if (dates) {
-      const avail = getAvailableRooms(dates.checkIn, dates.checkOut, type);
+      const avail = await getAvailableRooms(dates.checkIn, dates.checkOut, type);
       const nights = calculateNights(dates.checkIn, dates.checkOut);
       if (avail.length > 0) {
         const room = avail[0];
@@ -61,17 +61,15 @@ export async function POST(req: NextRequest) {
     const type = findType(all);
 
     if (name && dates && type) {
-      const avail = getAvailableRooms(dates.checkIn, dates.checkOut, type);
+      const avail = await getAvailableRooms(dates.checkIn, dates.checkOut, type);
       if (avail.length > 0) {
         const room = avail[0];
         const nights = calculateNights(dates.checkIn, dates.checkOut);
         const total = room.pricePerNight * nights;
-        const booking = createBooking({
-          roomId: room.id, roomType: room.type, roomNumber: room.number,
-          guestName: name, guestPhone: phone || "+1 (555) 000-0000",
+        const booking = await createBooking({
+          roomId: room.id, guestName: name, guestPhone: phone || "+1 (555) 000-0000",
           checkIn: dates.checkIn, checkOut: dates.checkOut,
-          adults: guests?.adults || 2, children: guests?.children || 0,
-          totalPrice: total,
+          adults: guests?.adults || 2, children: guests?.children || 0, totalPrice: total,
         });
         reply = `✅ Reservation confirmed!\n\n━━━━━━━━━━━━━━━━━━━━━\n🔑  ${booking.confirmationCode}\n🏨  ${room.type} Room ${room.number}, Floor ${room.floor}\n📅  ${fmtDate(dates.checkIn)} → ${fmtDate(dates.checkOut)} (${nights} nights)\n👤  ${name} · ${booking.adults} adult${booking.adults > 1 ? "s" : ""}${booking.children ? `, ${booking.children} child${booking.children > 1 ? "ren" : ""}` : ""}\n💰  $${total}\n━━━━━━━━━━━━━━━━━━━━━\n\n${phone ? `📱 Confirmation sent to ${phone}` : "Would you like a confirmation text?"}\n\nIs there anything else I can help with?`;
       } else {
