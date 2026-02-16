@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const ASSISTANT_ID = "assistant-281f1430-c7a0-4186-a699-d0de5f3acf6d";
+const TEXML_APP_ID = "2896912305839146529";
 
 export async function POST(req: NextRequest) {
   const { phone } = await req.json();
@@ -18,32 +18,30 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // Create an outbound call using the AI Assistant
-    const res = await fetch("https://api.telnyx.com/v2/ai/assistants/" + ASSISTANT_ID + "/conversations", {
+    // Outbound call via TeXML → AI Assistant handles the conversation
+    const res = await fetch(`https://api.telnyx.com/v2/texml/calls/${TEXML_APP_ID}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.TELNYX_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        channel: "voice",
-        voice: {
-          from,
-          to,
-        },
+        From: from,
+        To: to,
       }),
     });
 
     const data = await res.json();
-    console.log("[call] create conversation:", JSON.stringify(data).slice(0, 500));
+    console.log("[call] texml response:", JSON.stringify(data));
 
-    if (data.errors) {
+    if (data.errors && data.errors.length > 0 && !data.call_sid) {
       return NextResponse.json({ error: data.errors[0]?.detail || "Failed to initiate call" }, { status: 400 });
     }
 
     return NextResponse.json({
       success: true,
-      conversation_id: data.id || data.data?.id,
+      call_sid: data.call_sid,
+      status: data.status,
       message: "Calling you now! Pick up to speak with Aria.",
     });
   } catch (err: any) {
