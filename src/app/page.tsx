@@ -27,6 +27,8 @@ export default function Home() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [callRequested, setCallRequested] = useState(false);
   const [callError, setCallError] = useState("");
+  const [liveStatus, setLiveStatus] = useState("");
+  const eventSourceRef = useRef<EventSource | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -144,11 +146,13 @@ export default function Home() {
   function endCall() {
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
     if (typingAudioRef.current) typingAudioRef.current.pause();
+    if (eventSourceRef.current) { eventSourceRef.current.close(); eventSourceRef.current = null; }
     setCall(c => ({ ...c, phase: "ended", active: false }));
     addMsg("system", `Call ended — ${formatDuration(call.duration)}`);
     clearInterval(timerRef.current);
     setActiveSpeaker(null);
     setIsTyping(false);
+    setLiveStatus("");
     abortRef.current = true;
   }
 
@@ -253,8 +257,38 @@ export default function Home() {
                     setCall({ active: true, duration: 0, phase: "ringing" });
                     setMessages([]);
                     setDemoMode(false);
+                    setLiveStatus("Calling...");
                     addMsg("system", "📞 Calling " + phoneNumber + " — pick up to talk to Aria!");
-                    setTimeout(() => setCall(c => ({ ...c, phase: "connected" })), 3000);
+
+                    // Connect to live transcript SSE
+                    const cleanPhone = phoneNumber.trim().replace(/\D/g, "").slice(-10);
+                    const es = new EventSource(`/api/call/transcript?phone=${cleanPhone}`);
+                    eventSourceRef.current = es;
+                    let connected = false;
+                    es.onmessage = (event) => {
+                      try {
+                        const d = JSON.parse(event.data);
+                        if (d.type === "status") {
+                          setLiveStatus(d.text);
+                          if (d.text.includes("connected") && !connected) {
+                            connected = true;
+                            setCall(c => ({ ...c, phase: "connected" }));
+                          }
+                        } else if (d.type === "message") {
+                          if (!connected) {
+                            connected = true;
+                            setCall(c => ({ ...c, phase: "connected" }));
+                          }
+                          setLiveStatus(d.role === "assistant" ? "🤖 Aria speaking..." : "🎤 You speaking...");
+                          addMsg(d.role, d.text);
+                        } else if (d.type === "ended") {
+                          setLiveStatus("");
+                          endCall();
+                          es.close();
+                        }
+                      } catch {}
+                    };
+                    es.onerror = () => { es.close(); };
                   } catch (err: any) {
                     setCallError("Failed to initiate call. Try again.");
                   }
@@ -406,19 +440,19 @@ export default function Home() {
                   {/* Input */}
                   <div className="px-3 py-3 border-t border-white/5">
                     {call.phase === "connected" && !demoMode ? (
-                      <form onSubmit={e => { e.preventDefault(); sendMessage(); }} className="flex gap-2">
-                        <input
-                          type="text"
-                          value={input}
-                          onChange={e => setInput(e.target.value)}
-                          placeholder="Speak to the AI..."
-                          className="flex-1 bg-[var(--card)] border border-white/5 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-[var(--gold-dim)] transition placeholder:text-[var(--muted)]"
-                          autoFocus
-                        />
-                        <button type="submit" className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center text-white hover:bg-blue-600 transition">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
-                        </button>
-                      </form>
+                      <div className="h-10 flex items-center justify-center text-xs gap-2">
+                        {liveStatus ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-[var(--green)] animate-pulse" />
+                            <span className="text-[var(--green)]">{liveStatus}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-[var(--green)] animate-pulse" />
+                            <span className="text-[var(--muted)]">Live call — speak into your phone</span>
+                          </>
+                        )}
+                      </div>
                     ) : (
                       <div className="h-10 flex items-center justify-center text-xs text-[var(--muted)]">
                         {call.phase === "ringing" && "Connecting to AI Concierge..."}
