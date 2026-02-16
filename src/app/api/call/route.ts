@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const ASSISTANT_ID = "assistant-6e384869-86c6-4ad9-b4e2-c661095abfc2";
+const ASSISTANT_ID = "assistant-281f1430-c7a0-4186-a699-d0de5f3acf6d";
 
 export async function POST(req: NextRequest) {
   const { phone } = await req.json();
