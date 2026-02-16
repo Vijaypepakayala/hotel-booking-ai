@@ -54,7 +54,7 @@ async function handleCheckAvailability(args: any) {
         count: 0,
         price: room.pricePerNight,
         total: room.pricePerNight * nights,
-        amenities: room.amenities || "",
+        amenities: Array.isArray(room.amenities) ? (room.amenities as string[]).join(", ") : String(room.amenities || ""),
       };
     }
     available[room.type].count++;
