@@ -6,9 +6,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   console.log("[assistant/tools] webhook:", JSON.stringify(body).slice(0, 500));
 
-  const functionName = body?.function_name || body?.tool_call?.function?.name;
-  const args = body?.function_args || body?.tool_call?.function?.arguments;
-  const parsedArgs = typeof args === "string" ? JSON.parse(args) : args || {};
+  // Telnyx sends: { function_name, function_args } or { name, arguments } or nested
+  const functionName = body?.function_name || body?.name || body?.tool_call?.function?.name || body?.function?.name;
+  const rawArgs = body?.function_args || body?.arguments || body?.tool_call?.function?.arguments || body?.function?.arguments || body?.parameters || {};
+  const parsedArgs = typeof rawArgs === "string" ? JSON.parse(rawArgs) : rawArgs;
+  
+  console.log("[assistant/tools] function:", functionName, "args:", JSON.stringify(parsedArgs));
 
   try {
     if (functionName === "check_availability") {
