@@ -3,20 +3,18 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import type { ChatMessage, CallState } from "@/lib/types";
 
-const DEMO_CONVERSATION: { role: "assistant" | "user"; text: string; delay: number }[] = [
-  { role: "assistant", text: "Good evening, thank you for calling Grand Horizon Hotel. My name is Aria, your AI concierge. How may I assist you today?", delay: 1200 },
-  { role: "user", text: "Hi, I'd like to book a room for February 20th to the 23rd", delay: 2500 },
-  { role: "assistant", text: "Wonderful! Let me check availability for February 20th through the 23rd — that's 3 nights.\n\nI have several options for you:\n\n• Standard Room — $99/night ($297 total)\n• Deluxe Room with balcony — $149/night ($447 total)\n• Suite with jacuzzi — $249/night ($747 total)\n\nWhich would you prefer?", delay: 2000 },
-  { role: "user", text: "The deluxe sounds great", delay: 2000 },
-  { role: "assistant", text: "Excellent choice! The Deluxe Room on the 3rd floor includes a private balcony, bathrobe, and complimentary breakfast.\n\nTo complete your reservation, may I have your full name?", delay: 1500 },
-  { role: "user", text: "Rachel Anderson, 2 adults", delay: 2000 },
-  { role: "assistant", text: "Thank you, Rachel! And will any children be joining you?", delay: 1200 },
-  { role: "user", text: "No, just us two", delay: 1500 },
-  { role: "assistant", text: "Perfect. Could I have a phone number for the reservation? I'll send your confirmation via text.", delay: 1200 },
-  { role: "user", text: "+1 415 555 7890", delay: 2000 },
-  { role: "assistant", text: "✅ Your reservation is confirmed!\n\n━━━━━━━━━━━━━━━━━━━━━\n🔑  Confirmation: GH-R4N7\n🏨  Deluxe Room 305, Floor 3\n📅  Feb 20 → Feb 23 (3 nights)\n👤  Rachel Anderson — 2 adults\n💰  $447 total\n━━━━━━━━━━━━━━━━━━━━━\n\n📱 Confirmation sent to +1 415 555 7890\n\nWe look forward to welcoming you, Rachel! Is there anything else I can help with?", delay: 2500 },
-  { role: "user", text: "That's all, thank you!", delay: 1500 },
-  { role: "assistant", text: "Thank you for choosing Grand Horizon Hotel, Rachel. Have a wonderful evening! 🌙", delay: 1000 },
+const DEMO_CONVERSATION: { role: "assistant" | "user"; text: string; audio: string; ambient?: boolean }[] = [
+  { role: "assistant", text: "Good evening, thank you for calling Grand Horizon Hotel. My name is Aria, your AI concierge. How may I assist you today?", audio: "/demo/step-0.mp3" },
+  { role: "user", text: "Hi, I'd like to book a room for February 20th to the 23rd", audio: "/demo/step-1.mp3" },
+  { role: "assistant", text: "Wonderful! Let me check availability for February 20th through the 23rd — that's 3 nights.\n\nI have several options for you:\n\n• Standard Room — $99/night ($297 total)\n• Deluxe Room with balcony — $149/night ($447 total)\n• Suite with jacuzzi — $249/night ($747 total)\n\nWhich would you prefer?", audio: "/demo/step-2.mp3", ambient: true },
+  { role: "user", text: "The deluxe sounds great", audio: "/demo/step-3.mp3" },
+  { role: "assistant", text: "Excellent choice! The Deluxe Room on the 3rd floor includes a private balcony, bathrobe, and complimentary breakfast.\n\nTo complete your reservation, may I have your full name?", audio: "/demo/step-4.mp3" },
+  { role: "user", text: "Rachel Anderson, 2 adults", audio: "/demo/step-5.mp3" },
+  { role: "assistant", text: "Thank you, Rachel! Could I have a phone number for the reservation? I'll send your confirmation via text.", audio: "/demo/step-6.mp3" },
+  { role: "user", text: "+1 415 555 7890", audio: "/demo/step-7.mp3" },
+  { role: "assistant", text: "✅ Your reservation is confirmed!\n\n━━━━━━━━━━━━━━━━━━━━━\n🔑  Confirmation: GH-R4N7\n🏨  Deluxe Room 305, Floor 3\n📅  Feb 20 → Feb 23 (3 nights)\n👤  Rachel Anderson — 2 adults\n💰  $447 total\n━━━━━━━━━━━━━━━━━━━━━\n\n📱 Confirmation sent to +1 415 555 7890\n\nWe look forward to welcoming you, Rachel! Is there anything else I can help with?", audio: "/demo/step-8.mp3", ambient: true },
+  { role: "user", text: "That's all, thank you!", audio: "/demo/step-9.mp3" },
+  { role: "assistant", text: "Thank you for choosing Grand Horizon Hotel, Rachel. Have a wonderful evening! 🌙", audio: "/demo/step-10.mp3" },
 ];
 
 export default function Home() {
@@ -24,16 +22,18 @@ export default function Home() {
   const [call, setCall] = useState<CallState>({ active: false, duration: 0, phase: "idle" });
   const [input, setInput] = useState("");
   const [demoMode, setDemoMode] = useState(false);
-  const [demoIdx, setDemoIdx] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
+  const [activeSpeaker, setActiveSpeaker] = useState<"assistant" | "user" | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const typingAudioRef = useRef<HTMLAudioElement | null>(null);
+  const abortRef = useRef(false);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Call timer
   useEffect(() => {
     if (call.phase === "connected") {
       timerRef.current = setInterval(() => setCall(c => ({ ...c, duration: c.duration + 1 })), 1000);
@@ -41,55 +41,112 @@ export default function Home() {
     return () => clearInterval(timerRef.current);
   }, [call.phase]);
 
+  // Pre-load typing sound
+  useEffect(() => {
+    const t = new Audio("/demo/typing.mp3");
+    t.loop = true;
+    t.volume = 0.15;
+    typingAudioRef.current = t;
+    return () => { t.pause(); };
+  }, []);
+
   const addMsg = useCallback((role: "assistant" | "user" | "system", text: string) => {
     setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role, text, timestamp: Date.now() }]);
   }, []);
 
+  function playAudio(src: string): Promise<void> {
+    return new Promise((resolve) => {
+      const audio = new Audio(src);
+      audioRef.current = audio;
+      audio.onended = () => resolve();
+      audio.onerror = () => resolve();
+      audio.play().catch(() => setTimeout(resolve, 2000));
+    });
+  }
+
   async function startCall(demo: boolean) {
     setMessages([]);
     setDemoMode(demo);
-    setDemoIdx(0);
+    abortRef.current = false;
     setCall({ active: true, duration: 0, phase: "ringing" });
+    setActiveSpeaker(null);
 
-    // Ring for 2s
     await sleep(2000);
     setCall(c => ({ ...c, phase: "connected" }));
     addMsg("system", "Call connected — AI Concierge Active");
 
     if (demo) {
+      await sleep(600);
       runDemo(0);
     } else {
       await sleep(800);
       setIsTyping(true);
+      setActiveSpeaker("assistant");
       await sleep(1500);
       setIsTyping(false);
       addMsg("assistant", "Good evening, thank you for calling Grand Horizon Hotel. My name is Aria, your AI concierge. How may I assist you today?");
+      setActiveSpeaker(null);
     }
   }
 
   async function runDemo(idx: number) {
-    if (idx >= DEMO_CONVERSATION.length) {
-      await sleep(2000);
-      endCall();
+    if (idx >= DEMO_CONVERSATION.length || abortRef.current) {
+      if (!abortRef.current) {
+        await sleep(2000);
+        endCall();
+      }
       return;
     }
-    const msg = DEMO_CONVERSATION[idx];
-    if (msg.role === "assistant") {
-      setIsTyping(true);
-      await sleep(msg.delay);
-      setIsTyping(false);
-    } else {
-      await sleep(msg.delay);
+
+    const step = DEMO_CONVERSATION[idx];
+
+    // Pause between turns
+    if (idx > 0) {
+      const prev = DEMO_CONVERSATION[idx - 1];
+      await sleep(prev.role !== step.role ? 800 : 400);
     }
-    addMsg(msg.role, msg.text);
-    setDemoIdx(idx + 1);
-    setTimeout(() => runDemo(idx + 1), 800);
+    if (abortRef.current) return;
+
+    // Show typing for AI
+    if (step.role === "assistant") {
+      setIsTyping(true);
+      await sleep(600);
+      if (abortRef.current) return;
+      setIsTyping(false);
+    }
+
+    // Add message & set speaker
+    addMsg(step.role, step.text);
+    setActiveSpeaker(step.role);
+
+    // Play ambient typing if applicable
+    if (step.ambient && typingAudioRef.current) {
+      typingAudioRef.current.currentTime = 0;
+      typingAudioRef.current.play().catch(() => {});
+    }
+
+    // Play audio
+    await playAudio(step.audio);
+
+    // Stop typing sound
+    if (typingAudioRef.current) typingAudioRef.current.pause();
+
+    setActiveSpeaker(null);
+    if (abortRef.current) return;
+
+    // Next step
+    runDemo(idx + 1);
   }
 
   function endCall() {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (typingAudioRef.current) typingAudioRef.current.pause();
     setCall(c => ({ ...c, phase: "ended", active: false }));
     addMsg("system", `Call ended — ${formatDuration(call.duration)}`);
     clearInterval(timerRef.current);
+    setActiveSpeaker(null);
+    setIsTyping(false);
+    abortRef.current = true;
   }
 
   async function sendMessage() {
@@ -155,16 +212,16 @@ export default function Home() {
             <div className="flex flex-wrap gap-3 mb-12 animate-fadeUp" style={{ animationDelay: '0.15s' }}>
               <button
                 onClick={() => startCall(true)}
-                disabled={call.phase !== "idle" && call.phase !== "ended"}
+                disabled={call.phase === "ringing" || call.phase === "connected"}
                 className="group relative px-6 py-3.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-[var(--gold)] to-[var(--gold-bright)] text-[var(--bg)] hover:shadow-lg hover:shadow-[var(--gold)]/20 transition-all disabled:opacity-50"
               >
                 <span className="flex items-center gap-2">
-                  ▶ Watch Demo Call
+                  🔊 Watch Demo Call
                 </span>
               </button>
               <button
                 onClick={() => startCall(false)}
-                disabled={call.phase !== "idle" && call.phase !== "ended"}
+                disabled={call.phase === "ringing" || call.phase === "connected"}
                 className="px-6 py-3.5 rounded-xl font-semibold text-sm glass border-[var(--gold-dim)]/20 hover:border-[var(--gold)]/30 transition-all disabled:opacity-50"
               >
                 <span className="flex items-center gap-2">
@@ -198,7 +255,7 @@ export default function Home() {
                   {/* Phone status bar */}
                   <div className="flex items-center justify-between px-6 py-2 text-[10px] text-[var(--muted)]">
                     <span>9:41</span>
-                    <div className="w-20 h-5 bg-black rounded-full" /> {/* Notch */}
+                    <div className="w-20 h-5 bg-black rounded-full" />
                     <span>📶 🔋</span>
                   </div>
 
@@ -225,12 +282,13 @@ export default function Home() {
                           {call.phase === "connected" && (
                             <span className="text-[var(--green)] flex items-center gap-2">
                               Connected • {formatDuration(call.duration)}
-                              {/* Mini waveform */}
-                              <span className="flex items-end gap-[2px] h-3">
-                                {[12, 18, 8, 22, 14, 10, 16].map((h, i) => (
-                                  <span key={i} className="w-[2px] bg-[var(--green)] rounded-full wave-bar" style={{ '--h': `${h}px`, '--d': `${i * 0.08}s` } as React.CSSProperties} />
-                                ))}
-                              </span>
+                              {activeSpeaker && (
+                                <span className="flex items-end gap-[2px] h-3">
+                                  {[12, 18, 8, 22, 14, 10, 16].map((h, i) => (
+                                    <span key={i} className="w-[2px] bg-[var(--green)] rounded-full wave-bar" style={{ '--h': `${h}px`, '--d': `${i * 0.08}s` } as React.CSSProperties} />
+                                  ))}
+                                </span>
+                              )}
                             </span>
                           )}
                           {call.phase === "ended" && <span className="text-[var(--red)]">Call ended</span>}
@@ -245,15 +303,27 @@ export default function Home() {
                     </div>
                   </div>
 
+                  {/* Speaker indicator */}
+                  {activeSpeaker && call.phase === "connected" && (
+                    <div className="px-5 py-1.5 bg-[var(--card)] border-b border-white/5 text-[10px] text-center">
+                      {activeSpeaker === "assistant" ? (
+                        <span className="text-[var(--gold)]">🤖 Aria Speaking</span>
+                      ) : (
+                        <span className="text-blue-400">🎤 Caller Speaking</span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Messages */}
-                  <div ref={chatRef} className="h-[360px] overflow-y-auto px-4 py-3 space-y-2.5">
+                  <div ref={chatRef} className="h-[340px] overflow-y-auto px-4 py-3 space-y-2.5">
                     {call.phase === "idle" && messages.length === 0 && (
                       <div className="h-full flex items-center justify-center text-center px-4">
                         <div>
                           <div className="text-5xl mb-4 animate-float">🏨</div>
                           <p className="text-sm text-[var(--muted)] leading-relaxed">
-                            Watch a demo call or try the AI assistant yourself
+                            Press <strong>Watch Demo Call</strong> to hear the AI concierge in action
                           </p>
+                          <p className="text-xs text-[var(--muted)] mt-2">🔊 Turn your volume up</p>
                         </div>
                       </div>
                     )}
@@ -306,7 +376,7 @@ export default function Home() {
                     ) : (
                       <div className="h-10 flex items-center justify-center text-xs text-[var(--muted)]">
                         {call.phase === "ringing" && "Connecting to AI Concierge..."}
-                        {call.phase === "connected" && demoMode && "🔴 Live Demo — Watch the conversation"}
+                        {call.phase === "connected" && demoMode && "🔴 Live Demo — Listen to the conversation"}
                         {(call.phase === "idle" || call.phase === "ended") && "Start a call to begin"}
                       </div>
                     )}
