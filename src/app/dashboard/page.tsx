@@ -1,168 +1,201 @@
 "use client";
-
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { Booking } from "@/lib/types";
 
 interface Stats {
-  totalRooms: number;
-  occupiedRooms: number;
-  availableRooms: number;
-  occupancyRate: number;
-  totalRevenue: number;
-  totalGuests: number;
-  totalBookings: number;
+  totalRooms: number; bookedRooms: number; available: number;
+  occupancy: number; revenue: number; guests: number; bookings: number;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  confirmed: "bg-blue-500/20 text-blue-400",
-  "checked-in": "bg-green-500/20 text-green-400",
-  "checked-out": "bg-gray-500/20 text-gray-400",
-  cancelled: "bg-red-500/20 text-red-400",
+interface RoomData {
+  id: string; type: string; number: string; floor: number;
+  pricePerNight: number; booked: boolean;
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  Standard: "from-blue-500/20 to-blue-600/10 border-blue-500/20",
+  Deluxe: "from-purple-500/20 to-purple-600/10 border-purple-500/20",
+  Suite: "from-amber-500/20 to-amber-600/10 border-amber-500/20",
+  Penthouse: "from-rose-500/20 to-rose-600/10 border-rose-500/20",
+};
+const TYPE_DOT: Record<string, string> = {
+  Standard: "bg-blue-400", Deluxe: "bg-purple-400", Suite: "bg-amber-400", Penthouse: "bg-rose-400",
+};
+const STATUS_STYLE: Record<string, string> = {
+  confirmed: "bg-blue-500/15 text-blue-400 border border-blue-500/20",
+  "checked-in": "bg-green-500/15 text-green-400 border border-green-500/20",
+  "checked-out": "bg-zinc-500/15 text-zinc-400 border border-zinc-500/20",
+  cancelled: "bg-red-500/15 text-red-400 border border-red-500/20",
 };
 
 export default function Dashboard() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [rooms, setRooms] = useState<RoomData[]>([]);
+  const [selectedFloor, setSelectedFloor] = useState<number | null>(null);
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 5000); // Auto-refresh
-    return () => clearInterval(interval);
+    const iv = setInterval(() => { fetchData(); setTick(t => t + 1); }, 5000);
+    return () => clearInterval(iv);
   }, []);
 
   async function fetchData() {
-    try {
-      const res = await fetch("/api/bookings");
-      const data = await res.json();
-      setBookings(data.bookings);
-      setStats(data.stats);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
+    const [bRes, rRes] = await Promise.all([fetch("/api/bookings"), fetch("/api/rooms")]);
+    const bData = await bRes.json();
+    const rData = await rRes.json();
+    setStats(bData.stats);
+    setBookings(bData.bookings);
+    setRooms(rData.rooms);
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-[var(--gold)] animate-pulse text-lg">Loading dashboard...</div>
-      </div>
-    );
-  }
+  const floors = [5, 4, 3, 2];
+  const filteredRooms = selectedFloor ? rooms.filter(r => r.floor === selectedFloor) : rooms;
 
   return (
-    <div className="min-h-screen">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition">
-            <span className="text-2xl">🏨</span>
-            <span className="font-semibold text-[var(--gold)]">Grand Horizon</span>
-          </Link>
-          <span className="text-[var(--text-muted)] text-sm">/ Dashboard</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-xs text-[var(--text-muted)]">Live</span>
+    <div className="min-h-screen mesh-bg">
+      <nav className="fixed top-0 left-0 right-0 z-50 glass" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--gold)] to-[var(--gold-dim)] flex items-center justify-center text-sm font-bold text-[var(--bg)]">GH</div>
+              <span className="font-display text-lg font-semibold tracking-tight">Grand Horizon</span>
+            </Link>
+            <span className="text-[var(--muted)] text-sm hidden sm:inline">/ Operations Dashboard</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--green)]/10 border border-[var(--green)]/20">
+              <div className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse" />
+              <span className="text-xs text-[var(--green)] font-medium">Live</span>
+            </div>
+          </div>
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* Stats Grid */}
+      <div className="max-w-7xl mx-auto px-6 pt-20 pb-12">
+        {/* Stats */}
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatCard icon="🏨" label="Total Rooms" value={stats.totalRooms} />
-            <StatCard icon="📊" label="Occupancy" value={`${stats.occupancyRate}%`} sub={`${stats.occupiedRooms} occupied`} highlight />
-            <StatCard icon="💰" label="Revenue" value={`$${stats.totalRevenue.toLocaleString()}`} />
-            <StatCard icon="👤" label="Guests" value={stats.totalGuests} sub={`${stats.totalBookings} bookings`} />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-8">
+            <StatCard label="Occupancy" value={`${stats.occupancy}%`} icon={
+              <div className="relative w-10 h-10">
+                <svg className="w-10 h-10 -rotate-90" viewBox="0 0 36 36">
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" />
+                  <circle cx="18" cy="18" r="15" fill="none" stroke="var(--gold)" strokeWidth="3"
+                    strokeDasharray={`${stats.occupancy * 0.94} 100`} strokeLinecap="round" />
+                </svg>
+              </div>
+            } highlight />
+            <StatCard label="Revenue" value={`$${stats.revenue.toLocaleString()}`} sub="total" icon={<span className="text-2xl">💰</span>} />
+            <StatCard label="Guests" value={stats.guests} sub="in-house" icon={<span className="text-2xl">👤</span>} />
+            <StatCard label="Available" value={stats.available} sub={`of ${stats.totalRooms}`} icon={<span className="text-2xl">🔑</span>} />
+            <StatCard label="Bookings" value={stats.bookings} sub="total" icon={<span className="text-2xl">📋</span>} />
           </div>
         )}
 
-        {/* Room Availability Bar */}
-        {stats && (
-          <div className="glass rounded-xl p-5 mb-8 gold-glow">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold">Room Availability</h2>
-              <span className="text-sm text-[var(--text-muted)]">{stats.availableRooms} of {stats.totalRooms} available</span>
-            </div>
-            <div className="flex gap-1 h-8 rounded-lg overflow-hidden">
-              {[
-                { type: "Standard", count: 10, color: "bg-blue-500" },
-                { type: "Deluxe", count: 8, color: "bg-purple-500" },
-                { type: "Suite", count: 5, color: "bg-amber-500" },
-                { type: "Penthouse", count: 2, color: "bg-rose-500" },
-              ].map((r) => (
-                <div
-                  key={r.type}
-                  className={`${r.color}/30 flex items-center justify-center text-xs font-medium`}
-                  style={{ flex: r.count }}
-                  title={`${r.type}: ${r.count} rooms`}
-                >
-                  {r.type}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Bookings Table */}
-        <div className="glass rounded-xl overflow-hidden gold-glow">
-          <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
-            <h2 className="font-semibold">Recent Bookings</h2>
-            <span className="text-xs text-[var(--text-muted)]">Auto-refreshing every 5s</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[var(--text-muted)] text-xs uppercase tracking-wider border-b border-white/5">
-                  <th className="px-5 py-3">Confirmation</th>
-                  <th className="px-5 py-3">Guest</th>
-                  <th className="px-5 py-3">Room</th>
-                  <th className="px-5 py-3">Check-in</th>
-                  <th className="px-5 py-3">Check-out</th>
-                  <th className="px-5 py-3">Guests</th>
-                  <th className="px-5 py-3">Total</th>
-                  <th className="px-5 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bookings.map((b) => (
-                  <tr key={b.id} className="border-b border-white/5 hover:bg-white/[0.02] transition">
-                    <td className="px-5 py-3">
-                      <span className="font-mono text-[var(--gold)] font-medium">{b.confirmationCode}</span>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="font-medium">{b.guestName}</div>
-                      <div className="text-xs text-[var(--text-muted)]">{b.guestPhone}</div>
-                    </td>
-                    <td className="px-5 py-3">
-                      <div>{b.roomType}</div>
-                      <div className="text-xs text-[var(--text-muted)]">Room {b.roomNumber}</div>
-                    </td>
-                    <td className="px-5 py-3">{formatDate(b.checkIn)}</td>
-                    <td className="px-5 py-3">{formatDate(b.checkOut)}</td>
-                    <td className="px-5 py-3">
-                      {b.adults}A{b.children > 0 ? ` ${b.children}C` : ""}
-                    </td>
-                    <td className="px-5 py-3 font-medium">${b.totalPrice}</td>
-                    <td className="px-5 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${STATUS_COLORS[b.status]}`}>
-                        {b.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {bookings.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-5 py-12 text-center text-[var(--text-muted)]">
-                      No bookings yet. Try making one through the AI assistant!
-                    </td>
-                  </tr>
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Floor Plan */}
+          <div className="lg:col-span-1">
+            <div className="glass rounded-2xl overflow-hidden glow-gold">
+              <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+                <h2 className="font-semibold text-sm">Floor Plan</h2>
+                {selectedFloor && (
+                  <button onClick={() => setSelectedFloor(null)} className="text-xs text-[var(--gold)] hover:underline">All floors</button>
                 )}
-              </tbody>
-            </table>
+              </div>
+              <div className="p-4 space-y-3">
+                {floors.map(floor => {
+                  const floorRooms = rooms.filter(r => r.floor === floor);
+                  const type = floorRooms[0]?.type || "";
+                  const booked = floorRooms.filter(r => r.booked).length;
+                  const total = floorRooms.length;
+                  const isSelected = selectedFloor === floor;
+
+                  return (
+                    <button
+                      key={floor}
+                      onClick={() => setSelectedFloor(isSelected ? null : floor)}
+                      className={`w-full text-left rounded-xl p-3 border transition ${
+                        isSelected ? "border-[var(--gold)]/30 bg-[var(--gold)]/5" : "border-white/5 hover:border-white/10 bg-[var(--card)]"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-[var(--muted)]">F{floor}</span>
+                          <span className="text-sm font-medium">{type}</span>
+                        </div>
+                        <span className="text-xs text-[var(--muted)]">{booked}/{total} occupied</span>
+                      </div>
+                      {/* Room grid */}
+                      <div className="flex gap-1.5 flex-wrap">
+                        {floorRooms.map(room => (
+                          <div
+                            key={room.id}
+                            className={`w-7 h-7 rounded-md flex items-center justify-center text-[9px] font-mono transition ${
+                              room.booked
+                                ? `bg-gradient-to-br ${TYPE_COLORS[room.type]} border`
+                                : "bg-white/[0.03] border border-white/5"
+                            }`}
+                            title={`Room ${room.number} — ${room.booked ? "Occupied" : "Available"}`}
+                          >
+                            {room.number.slice(-2)}
+                          </div>
+                        ))}
+                      </div>
+                    </button>
+                  );
+                })}
+                {/* Legend */}
+                <div className="flex items-center gap-4 px-1 pt-2 text-[10px] text-[var(--muted)]">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-white/[0.03] border border-white/10" /> Available</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gradient-to-br from-blue-500/30 to-blue-600/20 border border-blue-500/20" /> Occupied</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bookings */}
+          <div className="lg:col-span-2">
+            <div className="glass rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-white/5 flex items-center justify-between">
+                <h2 className="font-semibold text-sm">Recent Bookings</h2>
+                <div className="flex items-center gap-2 text-[10px] text-[var(--muted)]">
+                  <div className="w-1 h-1 rounded-full bg-[var(--green)] animate-pulse" />
+                  Auto-refresh
+                </div>
+              </div>
+              <div className="divide-y divide-white/5">
+                {bookings.map((b, i) => (
+                  <div key={b.id} className="px-5 py-3.5 hover:bg-white/[0.015] transition animate-fadeUp" style={{ animationDelay: `${i * 0.05}s` }}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className={`w-2 h-2 rounded-full mt-1.5 ${TYPE_DOT[b.roomType]}`} />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-sm truncate">{b.guestName}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${STATUS_STYLE[b.status]}`}>
+                              {b.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 mt-0.5 text-xs text-[var(--muted)]">
+                            <span className="font-mono">{b.confirmationCode}</span>
+                            <span>{b.roomType} {b.roomNumber}</span>
+                            <span>{formatDate(b.checkIn)} → {formatDate(b.checkOut)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-semibold text-sm">${b.totalPrice}</div>
+                        <div className="text-[10px] text-[var(--muted)]">
+                          {b.adults}A{b.children > 0 ? ` ${b.children}C` : ""}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -170,21 +203,21 @@ export default function Dashboard() {
   );
 }
 
-function StatCard({ icon, label, value, sub, highlight }: {
-  icon: string; label: string; value: string | number; sub?: string; highlight?: boolean;
+function StatCard({ label, value, sub, icon, highlight }: {
+  label: string; value: string | number; sub?: string; icon: React.ReactNode; highlight?: boolean;
 }) {
   return (
-    <div className={`glass rounded-xl p-5 ${highlight ? "gold-glow" : ""}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-lg">{icon}</span>
-        <span className="text-xs text-[var(--text-muted)] uppercase tracking-wider">{label}</span>
+    <div className={`glass rounded-xl p-4 ${highlight ? "glow-gold border-[var(--gold)]/10" : ""}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] uppercase tracking-widest text-[var(--muted)]">{label}</span>
+        {icon}
       </div>
       <div className={`text-2xl font-bold ${highlight ? "text-[var(--gold)]" : ""}`}>{value}</div>
-      {sub && <div className="text-xs text-[var(--text-muted)] mt-1">{sub}</div>}
+      {sub && <div className="text-[10px] text-[var(--muted)] mt-0.5">{sub}</div>}
     </div>
   );
 }
 
-function formatDate(d: string): string {
+function formatDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

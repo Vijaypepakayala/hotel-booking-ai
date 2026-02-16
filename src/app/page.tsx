@@ -1,235 +1,374 @@
 "use client";
-
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
+import type { ChatMessage, CallState } from "@/lib/types";
 
-interface Message {
-  role: "assistant" | "user";
-  text: string;
-}
-
-const ROOM_TYPES = [
-  { type: "Standard", price: 99, icon: "🛏️" },
-  { type: "Deluxe", price: 149, icon: "✨" },
-  { type: "Suite", price: 249, icon: "🏰" },
-  { type: "Penthouse", price: 499, icon: "👑" },
+const DEMO_CONVERSATION: { role: "assistant" | "user"; text: string; delay: number }[] = [
+  { role: "assistant", text: "Good evening, thank you for calling Grand Horizon Hotel. My name is Aria, your AI concierge. How may I assist you today?", delay: 1200 },
+  { role: "user", text: "Hi, I'd like to book a room for February 20th to the 23rd", delay: 2500 },
+  { role: "assistant", text: "Wonderful! Let me check availability for February 20th through the 23rd — that's 3 nights.\n\nI have several options for you:\n\n• Standard Room — $99/night ($297 total)\n• Deluxe Room with balcony — $149/night ($447 total)\n• Suite with jacuzzi — $249/night ($747 total)\n\nWhich would you prefer?", delay: 2000 },
+  { role: "user", text: "The deluxe sounds great", delay: 2000 },
+  { role: "assistant", text: "Excellent choice! The Deluxe Room on the 3rd floor includes a private balcony, bathrobe, and complimentary breakfast.\n\nTo complete your reservation, may I have your full name?", delay: 1500 },
+  { role: "user", text: "Rachel Anderson, 2 adults", delay: 2000 },
+  { role: "assistant", text: "Thank you, Rachel! And will any children be joining you?", delay: 1200 },
+  { role: "user", text: "No, just us two", delay: 1500 },
+  { role: "assistant", text: "Perfect. Could I have a phone number for the reservation? I'll send your confirmation via text.", delay: 1200 },
+  { role: "user", text: "+1 415 555 7890", delay: 2000 },
+  { role: "assistant", text: "✅ Your reservation is confirmed!\n\n━━━━━━━━━━━━━━━━━━━━━\n🔑  Confirmation: GH-R4N7\n🏨  Deluxe Room 305, Floor 3\n📅  Feb 20 → Feb 23 (3 nights)\n👤  Rachel Anderson — 2 adults\n💰  $447 total\n━━━━━━━━━━━━━━━━━━━━━\n\n📱 Confirmation sent to +1 415 555 7890\n\nWe look forward to welcoming you, Rachel! Is there anything else I can help with?", delay: 2500 },
+  { role: "user", text: "That's all, thank you!", delay: 1500 },
+  { role: "assistant", text: "Thank you for choosing Grand Horizon Hotel, Rachel. Have a wonderful evening! 🌙", delay: 1000 },
 ];
 
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [call, setCall] = useState<CallState>({ active: false, duration: 0, phase: "idle" });
   const [input, setInput] = useState("");
+  const [demoMode, setDemoMode] = useState(false);
+  const [demoIdx, setDemoIdx] = useState(0);
   const [isTyping, setIsTyping] = useState(false);
-  const [callActive, setCallActive] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isTyping]);
 
-  async function startCall() {
-    setCallActive(true);
+  // Call timer
+  useEffect(() => {
+    if (call.phase === "connected") {
+      timerRef.current = setInterval(() => setCall(c => ({ ...c, duration: c.duration + 1 })), 1000);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [call.phase]);
+
+  const addMsg = useCallback((role: "assistant" | "user" | "system", text: string) => {
+    setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, role, text, timestamp: Date.now() }]);
+  }, []);
+
+  async function startCall(demo: boolean) {
     setMessages([]);
-    setIsTyping(true);
-    await delay(1000);
-    addAssistant(
-      "Welcome to Grand Horizon Hotel! 🏨 I'm your AI booking assistant. I can help you check room availability, make a reservation, or answer any questions about our hotel. What can I help you with today?"
-    );
-    setIsTyping(false);
+    setDemoMode(demo);
+    setDemoIdx(0);
+    setCall({ active: true, duration: 0, phase: "ringing" });
+
+    // Ring for 2s
+    await sleep(2000);
+    setCall(c => ({ ...c, phase: "connected" }));
+    addMsg("system", "Call connected — AI Concierge Active");
+
+    if (demo) {
+      runDemo(0);
+    } else {
+      await sleep(800);
+      setIsTyping(true);
+      await sleep(1500);
+      setIsTyping(false);
+      addMsg("assistant", "Good evening, thank you for calling Grand Horizon Hotel. My name is Aria, your AI concierge. How may I assist you today?");
+    }
+  }
+
+  async function runDemo(idx: number) {
+    if (idx >= DEMO_CONVERSATION.length) {
+      await sleep(2000);
+      endCall();
+      return;
+    }
+    const msg = DEMO_CONVERSATION[idx];
+    if (msg.role === "assistant") {
+      setIsTyping(true);
+      await sleep(msg.delay);
+      setIsTyping(false);
+    } else {
+      await sleep(msg.delay);
+    }
+    addMsg(msg.role, msg.text);
+    setDemoIdx(idx + 1);
+    setTimeout(() => runDemo(idx + 1), 800);
   }
 
   function endCall() {
-    setCallActive(false);
-    setMessages([]);
+    setCall(c => ({ ...c, phase: "ended", active: false }));
+    addMsg("system", `Call ended — ${formatDuration(call.duration)}`);
+    clearInterval(timerRef.current);
   }
 
   async function sendMessage() {
-    if (!input.trim()) return;
-    const userMsg = input.trim();
+    if (!input.trim() || demoMode) return;
+    const text = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", text: userMsg }]);
+    addMsg("user", text);
     setIsTyping(true);
-
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, history: messages }),
+        body: JSON.stringify({ message: text, history: messages.filter(m => m.role !== "system").map(m => ({ role: m.role, text: m.text })) }),
       });
       const data = await res.json();
-      await delay(800);
-      addAssistant(data.reply);
+      await sleep(600 + Math.random() * 800);
+      setIsTyping(false);
+      addMsg("assistant", data.reply);
     } catch {
-      await delay(500);
-      addAssistant("I apologize, I'm having a moment. Could you please repeat that?");
+      setIsTyping(false);
+      addMsg("assistant", "I apologize, could you repeat that?");
     }
-    setIsTyping(false);
-  }
-
-  function addAssistant(text: string) {
-    setMessages((prev) => [...prev, { role: "assistant", text }]);
-  }
-
-  function delay(ms: number) {
-    return new Promise((r) => setTimeout(r, ms));
   }
 
   return (
-    <div className="min-h-screen">
-      {/* Nav */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">🏨</span>
-          <span className="font-semibold text-[var(--gold)]">Grand Horizon</span>
+    <div className="min-h-screen mesh-bg">
+      {/* Floating nav */}
+      <nav className="fixed top-0 left-0 right-0 z-50 glass border-b-0 border-t-0 border-x-0" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--gold)] to-[var(--gold-dim)] flex items-center justify-center text-sm font-bold text-[var(--bg)]">GH</div>
+            <span className="font-display text-lg font-semibold tracking-tight">Grand Horizon</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/dashboard" className="text-sm text-[var(--muted)] hover:text-[var(--gold)] transition flex items-center gap-1.5">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+              Dashboard
+            </Link>
+          </div>
         </div>
-        <Link
-          href="/dashboard"
-          className="text-sm text-[var(--text-muted)] hover:text-[var(--gold)] transition"
-        >
-          Dashboard →
-        </Link>
       </nav>
 
       {/* Hero */}
-      <div className="max-w-6xl mx-auto px-6 pt-16 pb-8">
-        <div className="text-center mb-12 animate-in">
-          <div className="inline-block px-4 py-1 rounded-full text-xs font-medium tracking-wider uppercase mb-6 border border-[var(--gold-dim)] text-[var(--gold)]">
-            AI-Powered Hotel Booking
-          </div>
-          <h1 className="text-5xl md:text-6xl font-bold mb-4 tracking-tight">
-            Book Your Stay with a{" "}
-            <span className="text-[var(--gold)]">Simple Call</span>
-          </h1>
-          <p className="text-lg text-[var(--text-muted)] max-w-2xl mx-auto">
-            Our AI assistant handles your reservation from start to finish. Check availability,
-            choose your room, and get instant confirmation — all through a natural conversation.
-          </p>
-        </div>
-
-        {/* Room Types */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12 animate-in" style={{ animationDelay: "0.1s" }}>
-          {ROOM_TYPES.map((r) => (
-            <div key={r.type} className="glass rounded-xl p-4 text-center gold-glow">
-              <div className="text-3xl mb-2">{r.icon}</div>
-              <div className="font-semibold text-sm">{r.type}</div>
-              <div className="text-[var(--gold)] font-bold">${r.price}<span className="text-xs text-[var(--text-muted)]">/night</span></div>
-            </div>
-          ))}
-        </div>
-
-        {/* Call Simulator */}
-        <div className="max-w-lg mx-auto animate-in" style={{ animationDelay: "0.2s" }}>
-          <div className="glass rounded-2xl overflow-hidden gold-glow">
-            {/* Phone header */}
-            <div className="bg-[var(--navy-card)] px-5 py-4 flex items-center justify-between border-b border-white/5">
-              <div className="flex items-center gap-3">
-                <div className={`w-3 h-3 rounded-full ${callActive ? "bg-green-400 animate-pulse" : "bg-[var(--text-muted)]"}`} />
-                <div>
-                  <div className="font-semibold text-sm">Grand Horizon Hotel</div>
-                  <div className="text-xs text-[var(--text-muted)]">
-                    {callActive ? "Connected • AI Assistant" : "+1 (555) 0100"}
-                  </div>
-                </div>
+      <div className="max-w-7xl mx-auto px-6 pt-28 pb-12">
+        <div className="grid lg:grid-cols-2 gap-16 items-center">
+          {/* Left - Copy */}
+          <div>
+            <div className="animate-fadeUp">
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border border-[var(--gold-dim)]/30 text-[var(--gold)] mb-6 bg-[var(--gold)]/5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse" />
+                AI Concierge Online
               </div>
-              {callActive ? (
-                <button
-                  onClick={endCall}
-                  className="bg-red-500/20 text-red-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-500/30 transition"
-                >
-                  End Call
-                </button>
-              ) : (
-                <button
-                  onClick={startCall}
-                  className="bg-green-500/20 text-green-400 px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-green-500/30 transition pulse-gold"
-                >
-                  📞 Call Now
-                </button>
-              )}
+              <h1 className="font-display text-5xl md:text-6xl font-bold leading-[1.1] mb-6 tracking-tight">
+                Your next hotel stay,<br/>
+                <span className="bg-gradient-to-r from-[var(--gold)] to-[var(--gold-bright)] bg-clip-text text-transparent">booked by voice</span>
+              </h1>
+              <p className="text-lg text-[var(--muted)] leading-relaxed mb-8 max-w-lg">
+                Call in. Tell our AI what you need. Get confirmed instantly with a text. No apps, no forms, no waiting on hold.
+              </p>
             </div>
 
-            {/* Chat area */}
-            <div ref={chatRef} className="h-80 overflow-y-auto p-4 space-y-3">
-              {!callActive && messages.length === 0 && (
-                <div className="h-full flex items-center justify-center text-center">
-                  <div>
-                    <div className="text-4xl mb-3">📞</div>
-                    <p className="text-[var(--text-muted)] text-sm">
-                      Click &quot;Call Now&quot; to start a conversation<br />with our AI booking assistant
-                    </p>
-                  </div>
-                </div>
-              )}
-              {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                      m.role === "user"
-                        ? "bg-[var(--gold)] text-[var(--navy)] rounded-br-sm"
-                        : "bg-[var(--navy-light)] border border-white/5 rounded-bl-sm"
-                    }`}
-                  >
-                    {m.text}
-                  </div>
+            {/* CTA Buttons */}
+            <div className="flex flex-wrap gap-3 mb-12 animate-fadeUp" style={{ animationDelay: '0.15s' }}>
+              <button
+                onClick={() => startCall(true)}
+                disabled={call.phase !== "idle" && call.phase !== "ended"}
+                className="group relative px-6 py-3.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-[var(--gold)] to-[var(--gold-bright)] text-[var(--bg)] hover:shadow-lg hover:shadow-[var(--gold)]/20 transition-all disabled:opacity-50"
+              >
+                <span className="flex items-center gap-2">
+                  ▶ Watch Demo Call
+                </span>
+              </button>
+              <button
+                onClick={() => startCall(false)}
+                disabled={call.phase !== "idle" && call.phase !== "ended"}
+                className="px-6 py-3.5 rounded-xl font-semibold text-sm glass border-[var(--gold-dim)]/20 hover:border-[var(--gold)]/30 transition-all disabled:opacity-50"
+              >
+                <span className="flex items-center gap-2">
+                  📞 Try It Yourself
+                </span>
+              </button>
+            </div>
+
+            {/* Stats row */}
+            <div className="flex gap-8 animate-fadeUp" style={{ animationDelay: '0.25s' }}>
+              {[
+                { value: "25", label: "Rooms" },
+                { value: "<3s", label: "Avg. Answer" },
+                { value: "98%", label: "Accuracy" },
+                { value: "24/7", label: "Available" },
+              ].map(s => (
+                <div key={s.label}>
+                  <div className="text-xl font-bold text-[var(--gold)]">{s.value}</div>
+                  <div className="text-xs text-[var(--muted)]">{s.label}</div>
                 </div>
               ))}
-              {isTyping && (
-                <div className="flex justify-start">
-                  <div className="bg-[var(--navy-light)] border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3">
-                    <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-[var(--gold)] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <div className="w-2 h-2 bg-[var(--gold)] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <div className="w-2 h-2 bg-[var(--gold)] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+          </div>
+
+          {/* Right - Phone UI */}
+          <div className="animate-fadeUp" style={{ animationDelay: '0.2s' }}>
+            <div className="relative max-w-sm mx-auto">
+              {/* Phone frame */}
+              <div className="rounded-[2.5rem] border-2 border-white/[0.06] bg-[var(--bg2)] p-2 glow-gold">
+                <div className="rounded-[2rem] overflow-hidden bg-[var(--bg)]">
+                  {/* Phone status bar */}
+                  <div className="flex items-center justify-between px-6 py-2 text-[10px] text-[var(--muted)]">
+                    <span>9:41</span>
+                    <div className="w-20 h-5 bg-black rounded-full" /> {/* Notch */}
+                    <span>📶 🔋</span>
+                  </div>
+
+                  {/* Call header */}
+                  <div className="px-5 py-3 border-b border-white/5">
+                    <div className="flex items-center gap-3">
+                      {call.phase === "ringing" ? (
+                        <div className="w-10 h-10 rounded-full bg-[var(--green)]/20 flex items-center justify-center animate-ring">
+                          <span className="text-lg">📞</span>
+                        </div>
+                      ) : call.phase === "connected" ? (
+                        <div className="w-10 h-10 rounded-full bg-[var(--green)]/20 flex items-center justify-center animate-pulse-ring">
+                          <span className="text-lg">🎙️</span>
+                        </div>
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-[var(--card)] flex items-center justify-center">
+                          <span className="text-lg">🏨</span>
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <div className="font-semibold text-sm">Grand Horizon Hotel</div>
+                        <div className="text-xs text-[var(--muted)]">
+                          {call.phase === "ringing" && <span className="text-[var(--green)]">Ringing...</span>}
+                          {call.phase === "connected" && (
+                            <span className="text-[var(--green)] flex items-center gap-2">
+                              Connected • {formatDuration(call.duration)}
+                              {/* Mini waveform */}
+                              <span className="flex items-end gap-[2px] h-3">
+                                {[12, 18, 8, 22, 14, 10, 16].map((h, i) => (
+                                  <span key={i} className="w-[2px] bg-[var(--green)] rounded-full wave-bar" style={{ '--h': `${h}px`, '--d': `${i * 0.08}s` } as React.CSSProperties} />
+                                ))}
+                              </span>
+                            </span>
+                          )}
+                          {call.phase === "ended" && <span className="text-[var(--red)]">Call ended</span>}
+                          {call.phase === "idle" && "+1 (800) 555-0100"}
+                        </div>
+                      </div>
+                      {call.phase === "connected" && (
+                        <button onClick={endCall} className="w-9 h-9 rounded-full bg-[var(--red)] flex items-center justify-center text-white text-xs hover:bg-red-600 transition">
+                          ✕
+                        </button>
+                      )}
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
 
-            {/* Input */}
-            {callActive && (
-              <div className="p-3 border-t border-white/5">
-                <form
-                  onSubmit={(e) => { e.preventDefault(); sendMessage(); }}
-                  className="flex gap-2"
-                >
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="Type your message..."
-                    className="flex-1 bg-[var(--navy-light)] border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[var(--gold-dim)] transition placeholder:text-[var(--text-muted)]"
-                  />
-                  <button
-                    type="submit"
-                    className="bg-[var(--gold)] text-[var(--navy)] px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-[var(--gold-light)] transition"
-                  >
-                    Send
-                  </button>
-                </form>
+                  {/* Messages */}
+                  <div ref={chatRef} className="h-[360px] overflow-y-auto px-4 py-3 space-y-2.5">
+                    {call.phase === "idle" && messages.length === 0 && (
+                      <div className="h-full flex items-center justify-center text-center px-4">
+                        <div>
+                          <div className="text-5xl mb-4 animate-float">🏨</div>
+                          <p className="text-sm text-[var(--muted)] leading-relaxed">
+                            Watch a demo call or try the AI assistant yourself
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {messages.map((m) => (
+                      <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : m.role === "system" ? "justify-center" : "justify-start"} animate-scaleIn`}>
+                        {m.role === "system" ? (
+                          <div className="text-[10px] text-[var(--muted)] bg-[var(--card)] px-3 py-1 rounded-full">
+                            {m.text}
+                          </div>
+                        ) : (
+                          <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-line ${
+                            m.role === "user"
+                              ? "bg-[var(--accent)] text-white rounded-br-md"
+                              : "bg-[var(--card)] border border-white/5 rounded-bl-md"
+                          }`}>
+                            {m.text}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {isTyping && (
+                      <div className="flex justify-start animate-scaleIn">
+                        <div className="bg-[var(--card)] border border-white/5 rounded-2xl rounded-bl-md px-4 py-3">
+                          <div className="flex gap-1.5 items-center">
+                            <div className="w-2 h-2 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                            <div className="w-2 h-2 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                            <div className="w-2 h-2 bg-[var(--muted)] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Input */}
+                  <div className="px-3 py-3 border-t border-white/5">
+                    {call.phase === "connected" && !demoMode ? (
+                      <form onSubmit={e => { e.preventDefault(); sendMessage(); }} className="flex gap-2">
+                        <input
+                          type="text"
+                          value={input}
+                          onChange={e => setInput(e.target.value)}
+                          placeholder="Speak to the AI..."
+                          className="flex-1 bg-[var(--card)] border border-white/5 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-[var(--gold-dim)] transition placeholder:text-[var(--muted)]"
+                          autoFocus
+                        />
+                        <button type="submit" className="w-10 h-10 rounded-xl bg-[var(--accent)] flex items-center justify-center text-white hover:bg-blue-600 transition">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" /></svg>
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="h-10 flex items-center justify-center text-xs text-[var(--muted)]">
+                        {call.phase === "ringing" && "Connecting to AI Concierge..."}
+                        {call.phase === "connected" && demoMode && "🔴 Live Demo — Watch the conversation"}
+                        {(call.phase === "idle" || call.phase === "ended") && "Start a call to begin"}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Features */}
-        <div className="grid md:grid-cols-3 gap-6 mt-16 animate-in" style={{ animationDelay: "0.3s" }}>
+      {/* How it works */}
+      <div className="max-w-7xl mx-auto px-6 py-20">
+        <h2 className="font-display text-3xl font-bold text-center mb-12">How It Works</h2>
+        <div className="grid md:grid-cols-4 gap-6">
           {[
-            { icon: "🤖", title: "AI-Powered", desc: "Natural language understanding handles complex booking requests" },
-            { icon: "⚡", title: "Instant Booking", desc: "Real-time availability checking and immediate confirmation" },
-            { icon: "📱", title: "SMS Confirmation", desc: "Automatic text message with booking details sent to your phone" },
-          ].map((f) => (
-            <div key={f.title} className="glass rounded-xl p-6 text-center">
-              <div className="text-3xl mb-3">{f.icon}</div>
-              <div className="font-semibold mb-1">{f.title}</div>
-              <div className="text-sm text-[var(--text-muted)]">{f.desc}</div>
+            { step: "01", icon: "📞", title: "Call In", desc: "Dial our hotel number — AI answers in under 3 seconds" },
+            { step: "02", icon: "📅", title: "Tell Us Your Dates", desc: "Just say when you need the room, naturally" },
+            { step: "03", icon: "🏨", title: "Pick Your Room", desc: "AI checks live availability and recommends options" },
+            { step: "04", icon: "✅", title: "Get Confirmed", desc: "Booking confirmed + SMS sent in seconds" },
+          ].map((s, i) => (
+            <div key={s.step} className="relative animate-fadeUp" style={{ animationDelay: `${i * 0.1}s` }}>
+              <div className="glass rounded-2xl p-6 h-full hover:border-[var(--gold)]/20 transition group">
+                <div className="text-xs font-mono text-[var(--gold-dim)] mb-3">{s.step}</div>
+                <div className="text-3xl mb-3 group-hover:scale-110 transition">{s.icon}</div>
+                <div className="font-semibold mb-1">{s.title}</div>
+                <div className="text-sm text-[var(--muted)] leading-relaxed">{s.desc}</div>
+              </div>
+              {i < 3 && (
+                <div className="hidden md:block absolute top-1/2 -right-3 text-[var(--muted)]">→</div>
+              )}
             </div>
           ))}
         </div>
+      </div>
 
-        <div className="text-center mt-12 text-xs text-[var(--text-muted)]">
-          Powered by <span className="text-[var(--gold)]">Telnyx</span> Voice AI &amp; Messaging
+      {/* Tech */}
+      <div className="max-w-7xl mx-auto px-6 pb-20">
+        <div className="glass-gold rounded-2xl p-8 md:p-12 text-center glow-gold">
+          <h2 className="font-display text-2xl font-bold mb-3">Built with Telnyx</h2>
+          <p className="text-[var(--muted)] mb-6 max-w-xl mx-auto">
+            Voice AI for natural conversations. Programmable SMS for instant confirmations. 
+            Global infrastructure for crystal-clear calls.
+          </p>
+          <div className="flex justify-center gap-6 text-sm text-[var(--muted)]">
+            <span>Voice AI</span>
+            <span className="text-[var(--gold)]">•</span>
+            <span>Call Control</span>
+            <span className="text-[var(--gold)]">•</span>
+            <span>SMS API</span>
+            <span className="text-[var(--gold)]">•</span>
+            <span>TeXML</span>
+          </div>
         </div>
       </div>
+
+      <footer className="border-t border-white/5 py-6 text-center text-xs text-[var(--muted)]">
+        Grand Horizon Hotel — AI Booking Demo • Powered by Telnyx
+      </footer>
     </div>
   );
 }
+
+function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+function formatDuration(s: number) { return `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`; }

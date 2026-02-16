@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAllBookings, getBookingStats } from "@/lib/data";
-
+import { getAllBookings, getStats } from "@/lib/data";
 export async function GET() {
-  return NextResponse.json({
-    bookings: getAllBookings(),
-    stats: getBookingStats(),
-  });
+  return NextResponse.json({ bookings: getAllBookings(), stats: getStats() });
 }
