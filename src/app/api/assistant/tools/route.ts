@@ -43,7 +43,37 @@ async function handleCheckAvailability(args: any) {
   const { check_in, check_out } = args;
   const checkIn = new Date(check_in);
   const checkOut = new Date(check_out);
+
+  // Validate dates are real dates
+  if (isNaN(checkIn.getTime()) || isNaN(checkOut.getTime())) {
+    return NextResponse.json({
+      result: JSON.stringify({ error: true, message: "I couldn't understand those dates. Could you please repeat the check-in and check-out dates? For example, 'March 15th to March 18th, 2026'." }),
+    });
+  }
+
+  // Validate check-in is not in the past
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (checkIn < today) {
+    return NextResponse.json({
+      result: JSON.stringify({ error: true, message: `Those dates appear to be in the past. Today is ${today.toISOString().split('T')[0]}. Could you please provide future dates for your stay?` }),
+    });
+  }
+
+  // Validate check-out is after check-in
+  if (checkOut <= checkIn) {
+    return NextResponse.json({
+      result: JSON.stringify({ error: true, message: "The check-out date must be after the check-in date. Could you please confirm both dates?" }),
+    });
+  }
+
+  // Validate stay is reasonable (1-30 nights)
   const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
+  if (nights > 30) {
+    return NextResponse.json({
+      result: JSON.stringify({ error: true, message: `That would be a ${nights}-night stay. Our maximum booking is 30 nights. Could you please provide a shorter date range?` }),
+    });
+  }
 
   // Get rooms that are NOT booked for these dates
   const bookedRoomIds = await prisma.booking.findMany({
